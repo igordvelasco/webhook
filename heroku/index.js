@@ -1,15 +1,12 @@
-/**
- * Copyright 2016-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
+require('dotenv').config()
 
-var bodyParser = require('body-parser');
-var express = require('express');
-var app = express();
-var xhub = require('express-x-hub');
+const bodyParser = require('body-parser');
+const express = require('express');
+const app = express();
+const xhub = require('express-x-hub');
+const fetch = require('node-fetch')
+
+const jwt = process.env.JWT
 
 app.set('port', (process.env.PORT || 5000));
 app.listen(app.get('port'));
@@ -17,15 +14,15 @@ app.listen(app.get('port'));
 app.use(xhub({ algorithm: 'sha1', secret: process.env.APP_SECRET }));
 app.use(bodyParser.json());
 
-var token = process.env.TOKEN || 'token';
-var received_updates = [];
+const token = process.env.TOKEN || 'token';
+const received_updates = [];
 
-app.get('/', function(req, res) {
+app.get('/', function (req, res) {
   console.log(req);
   res.send('<pre>' + JSON.stringify(received_updates, null, 2) + '</pre>');
 });
 
-app.get(['/facebook', '/instagram'], function(req, res) {
+app.get(['/facebook', '/instagram', '/whatsapp'], function (req, res) {
   if (
     req.query['hub.mode'] == 'subscribe' &&
     req.query['hub.verify_token'] == token
@@ -36,7 +33,7 @@ app.get(['/facebook', '/instagram'], function(req, res) {
   }
 });
 
-app.post('/facebook', function(req, res) {
+app.post('/facebook', function (req, res) {
   console.log('Facebook request body:', req.body);
 
   if (!req.isXHubValid()) {
@@ -51,10 +48,52 @@ app.post('/facebook', function(req, res) {
   res.sendStatus(200);
 });
 
-app.post('/instagram', function(req, res) {
+app.post('/whatsapp', async function (req, res) {
+  if (!req.isXHubValid()) {
+    console.log('Warning - request header X-Hub-Signature not present or invalid');
+    res.sendStatus(401);
+    return;
+  }
+
+  console.log('request header X-Hub-Signature validated');
+
+  const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body;
+  const phone = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+
+  let template;
+
+  switch (message) {
+    case 'Conhecer os projetos':
+    case 'Problemas com plataforma':
+    case 'Formação de professores':
+    default:
+      template = 'boas_vindas'
+  }
+  
+  await fetch('https://graph.facebook.com/v13.0/100679882671832/messages', {
+    method: 'post',
+    body: JSON.stringify({
+      "messaging_product": "whatsapp",
+      "to": phone,
+      "type": "template",
+      "template": {
+        "name": template,
+        "language": { "code": "pt_BR" }
+      }
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`
+    }
+  });
+
+  received_updates.unshift(req.body);
+  res.sendStatus(200);
+});
+
+app.post('/intagram', function (req, res) {
   console.log('Instagram request body:');
   console.log(req.body);
-  // Process the Instagram updates here
   received_updates.unshift(req.body);
   res.sendStatus(200);
 });
